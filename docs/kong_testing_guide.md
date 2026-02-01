@@ -133,7 +133,12 @@ curl $KONG_ADMIN_URL/clustering/data-planes | jq
 
 ## Service Configuration Testing
 
-### 1. Configure Hello Service via Script
+Kong supports two approaches for backend service configuration:
+
+1. **Direct URL** (Simple): Service points directly to backend URL - good for PoC
+2. **Upstream + Targets** (Production): Service points to upstream with multiple targets - supports health checks, load balancing, and circuit breakers
+
+### 1. Configure Hello Service via Script (Using Direct URL)
 
 ```bash
 # Run setup script
@@ -145,51 +150,222 @@ curl $KONG_ADMIN_URL/clustering/data-planes | jq
 ./scripts/kong-setup.sh list-routes
 ```
 
-### 2. Manual Service Configuration Test
+### 2. Manual Service Configuration Test (Using Upstream)
+
+This test demonstrates the **production-ready approach** using upstream and targets for better load balancing and health checking.
+
+**Upstream vs Direct URL:**
+- **Direct URL** (`url: "http://host:port"`): Simple, good for PoC or single backend
+- **Upstream** (`host: "upstream-name"`): Production-ready, supports multiple targets, health checks, load balancing
 
 ```bash
-# Create service
+# Step 1: Create upstream
+curl -X POST $KONG_ADMIN_URL/upstreams \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "test-upstream",
+    "algorithm": "round-robin",
+    "healthchecks": {
+      "active": {
+        "healthy": {
+          "interval": 10,
+          "successes": 2
+        },
+        "unhealthy": {
+          "interval": 10,
+          "http_failures": 3
+        },
+        "http_path": "/actuator/health"
+      }
+    }
+  }' | jq
+
+# Step 2: Add target to upstream
+curl -X POST $KONG_ADMIN_URL/upstreams/test-upstream/targets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "sbxservice.sbxservice.dev.local:8080",
+    "weight": 100
+  }' | jq
+
+# Step 3: Verify upstream and targets
+curl $KONG_ADMIN_URL/upstreams/test-upstream | jq
+curl $KONG_ADMIN_URL/upstreams/test-upstream/targets | jq
+
+# Step 4: Create service pointing to upstream
 curl -X POST $KONG_ADMIN_URL/services \
   -H "Content-Type: application/json" \
   -d '{
     "name": "test-service",
-    "url": "http://sbxservice.sbxservice.dev.local:8080"
+    "host": "test-upstream",
+    "path": "/",
+    "protocol": "http",
+    "port": 80
   }' | jq
 
-# Verify service created
+# Step 5: Verify service created
 curl $KONG_ADMIN_URL/services/test-service | jq
 
-# Create route
+# Step 6: Create route
 curl -X POST $KONG_ADMIN_URL/services/test-service/routes \
   -H "Content-Type: application/json" \
   -d '{
     "name": "test-route",
-    "paths": ["/test"]
+    "paths": ["/test"],
+    "strip_path": false
   }' | jq
 
-# Verify route created
+# Step 7: Verify route created
 curl $KONG_ADMIN_URL/routes | jq '.data[] | select(.name=="test-route")'
 
-# Clean up test service
+# Step 8: Check upstream health
+curl $KONG_ADMIN_URL/upstreams/test-upstream/health | jq
+
+# Step 9: Test the route through Kong proxy
+# Get ALB URL first
+export ALB_URL=$(cd terraform && terraform output -raw alb_custom_domain_url)
+
+# Test the endpoint
+curl -v $ALB_URL/test/actuator/health
+
+# Expected: HTTP 200 with health status
+
+# Step 10: Clean up (delete in reverse order)
+curl -X DELETE $KONG_ADMIN_URL/routes/test-route
 curl -X DELETE $KONG_ADMIN_URL/services/test-service
+curl -X DELETE $KONG_ADMIN_URL/upstreams/test-upstream
+```
+
+**Note**: Using upstream provides:
+- Better load balancing across multiple targets
+- Active health checks
+- Easy addition/removal of backend targets
+- Circuit breaker functionality
+
+### 3. Production-Ready Hello Service Configuration (Using Upstream)
+
+This example shows how to configure the hello-service using upstream for production:
+
+```bash
+# Create upstream for hello-service
+curl -X POST $KONG_ADMIN_URL/upstreams \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "hello-upstream",
+    "algorithm": "round-robin",
+    "slots": 10000,
+    "healthchecks": {
+      "active": {
+        "type": "http",
+        "http_path": "/actuator/health",
+        "healthy": {
+          "interval": 10,
+          "successes": 2,
+          "http_statuses": [200, 302]
+        },
+        "unhealthy": {
+          "interval": 10,
+          "http_failures": 3,
+          "timeouts": 3,
+          "http_statuses": [429, 500, 503]
+        }
+      },
+      "passive": {
+        "type": "http",
+        "healthy": {
+          "successes": 5,
+          "http_statuses": [200, 201, 202, 203, 204, 205, 206, 207, 208, 226, 300, 301, 302, 303, 304, 305, 306, 307, 308]
+        },
+        "unhealthy": {
+          "http_failures": 5,
+          "timeouts": 5,
+          "http_statuses": [429, 500, 503]
+        }
+      }
+    }
+  }' | jq
+
+# Add hello-service target(s) to upstream
+curl -X POST $KONG_ADMIN_URL/upstreams/hello-upstream/targets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "sbxservice.sbxservice.dev.local:8080",
+    "weight": 100
+  }' | jq
+
+# If you have multiple hello-service instances, add more targets:
+# curl -X POST $KONG_ADMIN_URL/upstreams/hello-upstream/targets \
+#   -d '{"target": "sbxservice-2.sbxservice.dev.local:8080", "weight": 100}' | jq
+
+# Create service using upstream
+curl -X POST $KONG_ADMIN_URL/services \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "hello-service-upstream",
+    "host": "hello-upstream",
+    "port": 80,
+    "protocol": "http",
+    "connect_timeout": 60000,
+    "write_timeout": 60000,
+    "read_timeout": 60000,
+    "retries": 5
+  }' | jq
+
+# Create routes
+curl -X POST $KONG_ADMIN_URL/services/hello-service-upstream/routes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "hello-route-upstream",
+    "paths": ["/hello"],
+    "strip_path": false
+  }' | jq
+
+curl -X POST $KONG_ADMIN_URL/services/hello-service-upstream/routes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "health-route-upstream",
+    "paths": ["/actuator/health"],
+    "strip_path": false
+  }' | jq
+
+# Verify upstream health
+curl $KONG_ADMIN_URL/upstreams/hello-upstream/health | jq
+
+# Test the endpoints
+export ALB_URL=$(cd terraform && terraform output -raw alb_custom_domain_url)
+curl -s $ALB_URL/hello | jq
+curl -s $ALB_URL/actuator/health | jq
+
+# Monitor upstream health and targets
+curl $KONG_ADMIN_URL/upstreams/hello-upstream/targets | jq
 ```
 
 ## Traffic Routing Testing
 
-### 1. Test Through Kong Gateway
+### 1. Test Through Kong Gateway (via ALB)
+
+After running the setup script (`./scripts/kong-setup.sh setup`), the following routes are created:
+- `/hello` → hello-service
+- `/actuator/health` → hello-service
 
 ```bash
 export ALB_URL=$(cd terraform && terraform output -raw alb_custom_domain_url)
 
 # Test hello endpoint
-curl -v $ALB_URL/sbx/api/hello
+curl -v $ALB_URL/hello
 
-# Expected: HTTP 200 with hello message
+# Expected: HTTP 200 with hello message like:
+# {"message":"Hello from Spring Boot on ECS!","timestamp":"...","hostname":"..."}
 
 # Test health endpoint
 curl -v $ALB_URL/actuator/health
 
-# Expected: HTTP 200 with health status
+# Expected: HTTP 200 with health status:
+# {"status":"UP","groups":["liveness","readiness"]}
+
+# Test with jq for better formatting
+curl -s $ALB_URL/hello | jq
+curl -s $ALB_URL/actuator/health | jq
 ```
 
 ### 2. Test Kong Proxy Directly
