@@ -1,5 +1,72 @@
 # ECS module without ECR - ECR has been moved to another repository
 
+# Local variables
+locals {
+  # Compute Kong Data Plane S3 bucket name
+  kong_fallback_bucket_name = var.kong_fallback_s3_bucket_name != "" ? var.kong_fallback_s3_bucket_name : "${var.project_name}-${var.environment}-kong-config-fallback"
+  
+  # Compute Kong Data Plane environment variables
+  kong_dp_base_env = [
+    {
+      name  = "KONG_ROLE"
+      value = "data_plane"
+    },
+    {
+      name  = "KONG_DATABASE"
+      value = "off"
+    },
+    {
+      name  = "KONG_CLUSTER_CONTROL_PLANE"
+      value = "kong-cp.${aws_service_discovery_private_dns_namespace.service_discovery.name}:8005"
+    },
+    {
+      name  = "KONG_CLUSTER_TELEMETRY_ENDPOINT"
+      value = "kong-cp.${aws_service_discovery_private_dns_namespace.service_discovery.name}:8006"
+    },
+    {
+      name  = "KONG_CLUSTER_MTLS"
+      value = "shared"
+    },
+    {
+      name  = "KONG_CLUSTER_DP_LABELS"
+      value = "type:ecs-fargate,env:${var.environment}"
+    },
+    {
+      name  = "KONG_STATUS_LISTEN"
+      value = "0.0.0.0:8100"
+    },
+    {
+      name  = "KONG_PROXY_ACCESS_LOG"
+      value = "/dev/stdout"
+    },
+    {
+      name  = "KONG_PROXY_ERROR_LOG"
+      value = "/dev/stderr"
+    }
+  ]
+  
+  kong_dp_resilience_env = var.kong_cp_outage_resilience_enabled ? [
+    {
+      name  = "AWS_REGION"
+      value = var.region
+    },
+    {
+      name  = "KONG_CLUSTER_FALLBACK_CONFIG_EXPORT"
+      value = "on"
+    },
+    {
+      name  = "KONG_CLUSTER_FALLBACK_CONFIG_IMPORT"
+      value = "on"
+    },
+    {
+      name  = "KONG_CLUSTER_FALLBACK_CONFIG_STORAGE"
+      value = "s3://${local.kong_fallback_bucket_name}/${var.kong_fallback_s3_prefix}"
+    }
+  ] : []
+  
+  kong_dp_environment = concat(local.kong_dp_base_env, local.kong_dp_resilience_env)
+}
+
 # ECS Cluster
 resource "aws_ecs_cluster" "main" {
   name = "${var.project_name}-${var.environment}-cluster"
@@ -825,6 +892,118 @@ resource "aws_secretsmanager_secret_version" "kong_cluster_key" {
   secret_string = tls_private_key.kong_cluster[0].private_key_pem
 }
 
+# ============================================================================
+# Kong Control Plane Outage Resilience - S3 Bucket for Config Fallback
+# ============================================================================
+
+# S3 bucket for storing Kong configuration during CP outage
+resource "aws_s3_bucket" "kong_config_fallback" {
+  count  = var.kong_enabled && var.kong_cp_outage_resilience_enabled ? 1 : 0
+  bucket = local.kong_fallback_bucket_name
+
+  tags = {
+    Name        = local.kong_fallback_bucket_name
+    Description = "Kong Data Plane configuration fallback storage for CP outage resilience"
+  }
+}
+
+# Enable versioning for config history
+resource "aws_s3_bucket_versioning" "kong_config_fallback" {
+  count  = var.kong_enabled && var.kong_cp_outage_resilience_enabled ? 1 : 0
+  bucket = aws_s3_bucket.kong_config_fallback[0].id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# Enable server-side encryption
+resource "aws_s3_bucket_server_side_encryption_configuration" "kong_config_fallback" {
+  count  = var.kong_enabled && var.kong_cp_outage_resilience_enabled ? 1 : 0
+  bucket = aws_s3_bucket.kong_config_fallback[0].id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# Block public access
+resource "aws_s3_bucket_public_access_block" "kong_config_fallback" {
+  count  = var.kong_enabled && var.kong_cp_outage_resilience_enabled ? 1 : 0
+  bucket = aws_s3_bucket.kong_config_fallback[0].id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Lifecycle rule to delete old config versions (optional, keep 30 days of history)
+resource "aws_s3_bucket_lifecycle_configuration" "kong_config_fallback" {
+  count  = var.kong_enabled && var.kong_cp_outage_resilience_enabled ? 1 : 0
+  bucket = aws_s3_bucket.kong_config_fallback[0].id
+
+  rule {
+    id     = "delete-old-versions"
+    status = "Enabled"
+
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+  }
+
+  rule {
+    id     = "delete-election-files"
+    status = "Enabled"
+
+    expiration {
+      days = 7
+    }
+
+    filter {
+      prefix = "${var.kong_fallback_s3_prefix}/election/"
+    }
+  }
+}
+
+# IAM policy for Kong Data Plane - S3 Read and Write access
+resource "aws_iam_policy" "kong_dp_s3_access" {
+  count       = var.kong_enabled && var.kong_cp_outage_resilience_enabled ? 1 : 0
+  name        = "${var.project_name}-${var.environment}-kong-dp-s3-access-policy"
+  description = "Allow Kong Data Plane to read/write configuration from S3 for CP outage resilience"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.kong_config_fallback[0].arn,
+          "${aws_s3_bucket.kong_config_fallback[0].arn}/*"
+        ]
+      }
+    ]
+  })
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-kong-dp-s3-access-policy"
+  }
+}
+
+# Attach S3 access policy to Kong Data Plane task role
+resource "aws_iam_role_policy_attachment" "kong_dp_s3_access" {
+  count      = var.kong_enabled && var.kong_cp_outage_resilience_enabled ? 1 : 0
+  role       = aws_iam_role.ecs_task_role.name
+  policy_arn = aws_iam_policy.kong_dp_s3_access[0].arn
+}
+
 # Kong Gateway Data Plane ECS Task Definition
 resource "aws_ecs_task_definition" "kong_gateway" {
   count                    = var.kong_enabled ? 1 : 0
@@ -875,44 +1054,7 @@ resource "aws_ecs_task_definition" "kong_gateway" {
         timeout     = 5
         startPeriod = 60
       }
-      environment = [
-        {
-          name  = "KONG_ROLE"
-          value = "data_plane"
-        },
-        {
-          name  = "KONG_DATABASE"
-          value = "off"
-        },
-        {
-          name  = "KONG_CLUSTER_CONTROL_PLANE"
-          value = "kong-cp.${aws_service_discovery_private_dns_namespace.service_discovery.name}:8005"
-        },
-        {
-          name  = "KONG_CLUSTER_TELEMETRY_ENDPOINT"
-          value = "kong-cp.${aws_service_discovery_private_dns_namespace.service_discovery.name}:8006"
-        },
-        {
-          name  = "KONG_CLUSTER_MTLS"
-          value = "shared"
-        },
-        {
-          name  = "KONG_CLUSTER_DP_LABELS"
-          value = "type:ecs-fargate,env:${var.environment}"
-        },
-        {
-          name  = "KONG_STATUS_LISTEN"
-          value = "0.0.0.0:8100"
-        },
-        {
-          name  = "KONG_PROXY_ACCESS_LOG"
-          value = "/dev/stdout"
-        },
-        {
-          name  = "KONG_PROXY_ERROR_LOG"
-          value = "/dev/stderr"
-        }
-      ]
+      environment = local.kong_dp_environment
       secrets = [
         {
           name      = "KONG_CLUSTER_CERT"

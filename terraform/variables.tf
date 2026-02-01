@@ -147,6 +147,25 @@ variable "kong_db_skip_final_snapshot" {
   default     = false
 }
 
+# Kong Control Plane Outage Resilience configuration
+variable "kong_cp_outage_resilience_enabled" {
+  description = "Enable Kong Data Plane resilience with S3 fallback during CP outage"
+  type        = bool
+  default     = true
+}
+
+variable "kong_fallback_s3_bucket_name" {
+  description = "S3 bucket name for Kong configuration fallback (auto-generated if empty)"
+  type        = string
+  default     = ""
+}
+
+variable "kong_fallback_s3_prefix" {
+  description = "S3 prefix/path for Kong configuration fallback"
+  type        = string
+  default     = "kong-config"
+}
+
 variable "vpc_cidr" {
   description = "CIDR block for the VPC"
   type        = string

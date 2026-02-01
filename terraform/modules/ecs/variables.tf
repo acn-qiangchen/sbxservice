@@ -184,4 +184,23 @@ variable "kong_db_use_rds" {
   description = "Whether to use RDS for Kong database (true) or ECS container (false)"
   type        = bool
   default     = true
+}
+
+# Kong Control Plane Outage Resilience variables
+variable "kong_cp_outage_resilience_enabled" {
+  description = "Enable Kong Data Plane resilience with S3 fallback during CP outage"
+  type        = bool
+  default     = true
+}
+
+variable "kong_fallback_s3_bucket_name" {
+  description = "S3 bucket name for Kong configuration fallback (auto-generated if empty)"
+  type        = string
+  default     = ""
+}
+
+variable "kong_fallback_s3_prefix" {
+  description = "S3 prefix/path for Kong configuration fallback"
+  type        = string
+  default     = "kong-config"
 } 

@@ -185,6 +185,11 @@ module "ecs" {
   direct_routing_enabled = var.direct_routing_enabled
   kong_traffic_weight    = var.kong_traffic_weight
   direct_traffic_weight  = var.direct_traffic_weight
+
+  # Kong CP Outage Resilience configuration
+  kong_cp_outage_resilience_enabled = var.kong_cp_outage_resilience_enabled
+  kong_fallback_s3_bucket_name      = var.kong_fallback_s3_bucket_name
+  kong_fallback_s3_prefix           = var.kong_fallback_s3_prefix
 }
 
 # Route53 A record for ALB custom domain

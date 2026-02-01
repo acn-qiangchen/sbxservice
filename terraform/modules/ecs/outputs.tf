@@ -179,4 +179,20 @@ output "kong_admin_api_endpoint" {
 output "kong_admin_gui_endpoint" {
   description = "Kong Admin GUI endpoint URL (via ALB)"
   value       = var.kong_control_plane_enabled ? "http://${aws_lb.main.dns_name}:8002" : null
+}
+
+# Kong CP Outage Resilience outputs
+output "kong_config_fallback_bucket_name" {
+  description = "Name of the S3 bucket for Kong configuration fallback"
+  value       = var.kong_enabled && var.kong_cp_outage_resilience_enabled ? aws_s3_bucket.kong_config_fallback[0].id : null
+}
+
+output "kong_config_fallback_bucket_arn" {
+  description = "ARN of the S3 bucket for Kong configuration fallback"
+  value       = var.kong_enabled && var.kong_cp_outage_resilience_enabled ? aws_s3_bucket.kong_config_fallback[0].arn : null
+}
+
+output "kong_config_fallback_s3_uri" {
+  description = "S3 URI for Kong configuration fallback storage"
+  value       = var.kong_enabled && var.kong_cp_outage_resilience_enabled ? "s3://${aws_s3_bucket.kong_config_fallback[0].id}/${var.kong_fallback_s3_prefix}" : null
 } 
