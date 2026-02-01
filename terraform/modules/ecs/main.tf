@@ -4,7 +4,7 @@
 locals {
   # Compute Kong Data Plane S3 bucket name
   kong_fallback_bucket_name = var.kong_fallback_s3_bucket_name != "" ? var.kong_fallback_s3_bucket_name : "${var.project_name}-${var.environment}-kong-config-fallback"
-  
+
   # Compute Kong Data Plane environment variables
   kong_dp_base_env = [
     {
@@ -44,7 +44,7 @@ locals {
       value = "/dev/stderr"
     }
   ]
-  
+
   kong_dp_resilience_env = var.kong_cp_outage_resilience_enabled ? [
     {
       name  = "AWS_REGION"
@@ -63,7 +63,7 @@ locals {
       value = "s3://${local.kong_fallback_bucket_name}/${var.kong_fallback_s3_prefix}"
     }
   ] : []
-  
+
   kong_dp_environment = concat(local.kong_dp_base_env, local.kong_dp_resilience_env)
 }
 
