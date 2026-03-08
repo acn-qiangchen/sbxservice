@@ -78,6 +78,13 @@ See [Kong Quick Start Guide](docs/kong_quick_start.md) for detailed instructions
 
 The application services are now maintained in a separate repository: [SBXService Applications](https://github.com/your-org/sbxservice-apps).
 
+| Service | Repository | API Paths |
+|---------|-----------|-----------|
+| hello-service | sbxservice-apps | `/hello`, `/actuator/health` |
+| booth-arrival-service | **sbxservice-booth-arrival** | `/booth-arrival/customer-search-method` |
+
+The API path `/booth-arrival/customer-search-method` is implemented in the **`sbxservice-booth-arrival`** repository.
+
 ## Prerequisites
 
 - AWS CLI installed and configured with appropriate credentials
