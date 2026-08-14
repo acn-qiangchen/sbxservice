@@ -27,15 +27,16 @@ variable "project_name" {
   default     = "sbxservice"
 }
 
-# Container image variables with service-specific suffixes
+# Container image variables — no longer used for the app service (now hardcoded to kong/httpbin),
+# but kept for potential overrides or future use.
 variable "container_image_hello" {
-  description = "URL of the container image for the hello-service"
+  description = "Override image for the app service (default: kong/httpbin)"
   type        = string
   default     = ""
 }
 
 variable "container_image_kong" {
-  description = "URL of the container image for the Kong Gateway service"
+  description = "Override image for the Kong Gateway service (default: kong:3.9.1)"
   type        = string
   default     = ""
 }
@@ -47,9 +48,8 @@ variable "container_images" {
   default     = {}
 }
 
-# Keeping for backward compatibility
 variable "container_image_url" {
-  description = "URL of the main container image in ECR (from another repository) - DEPRECATED: use container_image_hello instead"
+  description = "Override URL for the main container image — DEPRECATED: set in main.tf directly"
   type        = string
   default     = ""
 }

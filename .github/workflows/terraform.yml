@@ -12,22 +12,14 @@ on:
           - dev
           - test
           - prod
-      tag:
-        description: 'Container image tag (default: latest)'
-        required: false
-        type: string
-        default: 'latest'
       aws_account_id:
-        description: 'AWS account ID for assuming the IAM role and ECR'
+        description: 'AWS account ID for assuming the IAM role'
         required: true
         type: string
 
 env:
   AWS_REGION: us-east-1
   TF_VERSION: 1.5.0
-  # Ensure ECR repo name doesn't include any tags
-  ECR_REPO_NAME: sbxservice-hello-service
-  SERVICE_NAME: hello-service
   TF_STATE_BUCKET_PREFIX: "sbxservice-terraform-state"
   TF_LOCK_TABLE_PREFIX: "sbxservice-terraform-locks"
 
@@ -131,23 +123,6 @@ jobs:
       working-directory: terraform
       run: terraform validate
     
-    - name: Construct Container Image URL
-      id: image-url
-      run: |
-        # Debug info
-        echo "AWS Account ID: ${{ github.event.inputs.aws_account_id }}"
-        echo "ECR Repo Name: ${{ env.ECR_REPO_NAME }}"
-        echo "Tag: ${{ github.event.inputs.tag }}"
-        
-        # Ensure the tag is properly set
-        IMAGE_TAG="${{ github.event.inputs.tag }}"
-        
-        # Construct ECR URL using standard format with explicit tag
-        IMAGE_URL="${{ github.event.inputs.aws_account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_NAME }}:${IMAGE_TAG}"
-        
-        echo "Container image URL: ${IMAGE_URL}"
-        echo "image_url=${IMAGE_URL}" >> $GITHUB_OUTPUT
-    
     - name: Create Terraform Variables
       working-directory: terraform
       run: |
@@ -155,9 +130,8 @@ jobs:
         environment = "${{ github.event.inputs.environment }}"
         aws_profile = ""
         aws_account_id = "${{ github.event.inputs.aws_account_id }}"
-        container_image_hello = "${{ steps.image-url.outputs.image_url }}"
         EOF
-        
+
         cat terraform.tfvars
     
     - name: Terraform Plan
@@ -172,13 +146,13 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
         terraform show -no-color tfplan | grep -E '(^  \+|^  \-|^  \~)' >> $GITHUB_STEP_SUMMARY || echo "No changes detected" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        
-        # Also show the container image being used
+
+        # Show container image being used
         echo "#### Container Image" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        echo "${{ steps.image-url.outputs.image_url }}" >> $GITHUB_STEP_SUMMARY
+        echo "App service: kong/httpbin (Docker Hub)" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-        
+
         # Show domain information
         echo "#### Domain Configuration" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY

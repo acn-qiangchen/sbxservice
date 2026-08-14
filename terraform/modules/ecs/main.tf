@@ -290,7 +290,7 @@ resource "aws_ecs_task_definition" "app" {
         }
       }
       healthCheck = {
-        command     = ["CMD-SHELL", "curl -f http://localhost:${var.container_port}/actuator/health || exit 1"]
+        command     = ["CMD-SHELL", "curl -f http://localhost:${var.container_port}/ || exit 1"]
         interval    = 30
         retries     = 3
         timeout     = 5
@@ -969,7 +969,7 @@ resource "aws_lb_target_group" "app" {
   target_type = "ip"
 
   health_check {
-    path                = var.kong_enabled ? "/status/ready" : "/actuator/health"
+    path                = var.kong_enabled ? "/status/ready" : "/"
     port                = var.kong_enabled ? "8100" : "traffic-port"
     interval            = 30
     timeout             = 5
@@ -1285,8 +1285,8 @@ resource "aws_lb_target_group" "direct" {
     unhealthy_threshold = 3
     interval            = 30
     protocol            = "HTTP"
-    port                = "8080"
-    path                = "/actuator/health"
+    port                = tostring(var.container_port)
+    path                = "/"
     matcher             = "200"
   }
 

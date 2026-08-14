@@ -156,9 +156,9 @@ module "ecs" {
   application_sg_id = module.security_groups.application_sg_id
   database_sg_id    = module.security_groups.database_sg_id
 
-  # Container configuration
-  container_image_url = lookup(local.container_images, "hello", "")
-  container_port      = 8080
+  # Container configuration - using kong/httpbin as the backend service
+  container_image_url = "kong/httpbin"
+  container_port      = 80
   task_cpu            = 1024
   task_memory         = 2048
   app_count           = 1

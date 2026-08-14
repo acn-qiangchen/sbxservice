@@ -71,7 +71,7 @@ variable "task_memory" {
 variable "container_port" {
   description = "Port exposed by the container"
   type        = number
-  default     = 8080
+  default     = 80
 }
 
 variable "app_count" {
