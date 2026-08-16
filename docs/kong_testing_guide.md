@@ -148,30 +148,88 @@ curl $KONG_ADMIN_URL/clustering/data-planes | jq
 ### 2. Manual Service Configuration Test
 
 ```bash
-# Create service
+# Step 1: Create upstream with active + passive health checks
+curl -X POST $KONG_ADMIN_URL/upstreams \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "test-upstream",
+    "healthchecks": {
+      "active": {
+        "type": "http",
+        "http_path": "/get",
+        "healthy": {
+          "interval": 10,
+          "successes": 2
+        },
+        "unhealthy": {
+          "interval": 5,
+          "http_failures": 3
+        }
+      },
+      "passive": {
+        "type": "http",
+        "healthy": {
+          "successes": 5
+        },
+        "unhealthy": {
+          "http_failures": 3,
+          "http_statuses": [500, 502, 503, 504]
+        }
+      }
+    }
+  }' | jq
+
+# Verify upstream created
+curl $KONG_ADMIN_URL/upstreams/test-upstream | jq
+
+# Step 2: Add target to upstream
+curl -X POST $KONG_ADMIN_URL/upstreams/test-upstream/targets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "sbxservice.sbxservice.dev.local:80",
+    "weight": 100
+  }' | jq
+
+# Verify target added and health status
+curl $KONG_ADMIN_URL/upstreams/test-upstream/targets | jq
+curl $KONG_ADMIN_URL/upstreams/test-upstream/health | jq
+
+# Step 3: Create service pointing to upstream
 curl -X POST $KONG_ADMIN_URL/services \
   -H "Content-Type: application/json" \
   -d '{
     "name": "test-service",
-    "url": "http://sbxservice.sbxservice.dev.local:8080"
+    "host": "test-upstream",
+    "protocol": "http",
+    "port": 80,
+    "path": "/"
   }' | jq
 
 # Verify service created
 curl $KONG_ADMIN_URL/services/test-service | jq
 
-# Create route
+# Step 4: Create route
 curl -X POST $KONG_ADMIN_URL/services/test-service/routes \
   -H "Content-Type: application/json" \
   -d '{
     "name": "test-route",
-    "paths": ["/test"]
+    "paths": ["/sdx"]
   }' | jq
 
 # Verify route created
 curl $KONG_ADMIN_URL/routes | jq '.data[] | select(.name=="test-route")'
 
-# Clean up test service
+# Step 5: Test traffic flows through the route
+export ALB_URL=$(cd terraform && terraform output -raw alb_custom_domain_url)
+curl -v $ALB_URL/sdx/get
+
+# Clean up (order matters: route → service → targets → upstream)
+curl -X DELETE $KONG_ADMIN_URL/routes/test-route
 curl -X DELETE $KONG_ADMIN_URL/services/test-service
+curl -X DELETE $KONG_ADMIN_URL/upstreams/test-upstream/targets/$(
+  curl -s $KONG_ADMIN_URL/upstreams/test-upstream/targets | jq -r '.data[0].id'
+)
+curl -X DELETE $KONG_ADMIN_URL/upstreams/test-upstream
 ```
 
 ## Traffic Routing Testing

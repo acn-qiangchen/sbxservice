@@ -290,7 +290,7 @@ resource "aws_ecs_task_definition" "app" {
         }
       }
       healthCheck = {
-        command     = ["CMD-SHELL", "curl -f http://localhost:${var.container_port}/ || exit 1"]
+        command     = ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost/get')\" || exit 1"]
         interval    = 30
         retries     = 3
         timeout     = 5
