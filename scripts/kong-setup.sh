@@ -132,6 +132,23 @@ setup_hello_service() {
     print_info "Hello-service setup complete!"
 }
 
+# Function to setup booth-arrival-service
+# Implemented in repository: sbxservice-booth-arrival
+setup_booth_arrival_service() {
+    local booth_arrival_service_url=${1:-"http://booth-arrival.sbxservice.dev.local:8080"}
+    
+    print_info "Setting up booth-arrival-service with Kong Gateway"
+    print_info "Service URL: $booth_arrival_service_url"
+    
+    # Create service
+    create_service "booth-arrival-service" "$booth_arrival_service_url"
+    
+    # Create routes
+    create_route "booth-arrival-service" "/booth-arrival/customer-search-method" "booth-arrival-customer-search-method-route"
+    
+    print_info "Booth-arrival-service setup complete!"
+}
+
 # Main script
 main() {
     print_info "=== Kong Gateway Setup Script ==="
@@ -147,6 +164,9 @@ main() {
         setup)
             setup_hello_service "$2"
             ;;
+        setup-booth-arrival)
+            setup_booth_arrival_service "$2"
+            ;;
         list-services)
             list_services
             ;;
@@ -157,13 +177,15 @@ main() {
             check_kong_health
             ;;
         *)
-            print_info "Usage: $0 {setup|list-services|list-routes|health} [hello-service-url]"
+            print_info "Usage: $0 {setup|setup-booth-arrival|list-services|list-routes|health} [service-url]"
             print_info ""
             print_info "Commands:"
-            print_info "  setup [url]       - Setup hello-service with Kong (default URL: http://sbxservice.sbxservice.dev.local:8080)"
-            print_info "  list-services     - List all Kong services"
-            print_info "  list-routes       - List all Kong routes"
-            print_info "  health            - Check Kong Control Plane health"
+            print_info "  setup [url]                - Setup hello-service with Kong (default URL: http://sbxservice.sbxservice.dev.local:8080)"
+            print_info "  setup-booth-arrival [url]  - Setup booth-arrival-service with Kong (default URL: http://booth-arrival.sbxservice.dev.local:8080)"
+            print_info "                               Implements: /booth-arrival/customer-search-method (repo: sbxservice-booth-arrival)"
+            print_info "  list-services              - List all Kong services"
+            print_info "  list-routes                - List all Kong routes"
+            print_info "  health                     - Check Kong Control Plane health"
             print_info ""
             print_info "Environment Variables:"
             print_info "  KONG_ADMIN_URL    - Kong Admin API endpoint (required)"
